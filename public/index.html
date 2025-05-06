@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>House Image Uploader</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; background: #111; color: #eee; }
+    input[type="file"] { margin-top: 1rem; }
+    img { margin-top: 1rem; max-width: 100%; border: 2px solid #555; }
+    button { margin-top: 1rem; padding: 0.5rem 1rem; }
+    #status { margin-top: 1rem; color: #0f0; }
+  </style>
+</head>
+<body>
+  <h1>Upload a House Image</h1>
+  <p>Select an image of your home below to generate a limewash + black trim rendering.</p>
+
+  <input type="file" accept="image/*" id="imageInput">
+  <br>
+  <img id="preview" style="display:none;" />
+  <br>
+  <button id="sendButton" disabled>Send to GPT-4o</button>
+  <div id="status"></div>
+
+  <script>
+    const input = document.getElementById('imageInput');
+    const preview = document.getElementById('preview');
+    const sendButton = document.getElementById('sendButton');
+    const status = document.getElementById('status');
+
+    let base64Image = '';
+
+    input.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        base64Image = evt.target.result;
+        preview.src = base64Image;
+        preview.style.display = 'block';
+        sendButton.disabled = false;
+        status.textContent = '';
+      };
+      reader.readAsDataURL(file);
+    });
+
+    sendButton.addEventListener('click', async () => {
+      if (!base64Image) return;
+
+      sendButton.disabled = true;
+      status.textContent = 'Sending image to GPT-4o...';
+
+      const res = await fetch('/api/gpt4o-image-enhance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image: base64Image,
+          userPrompt: "Please generate a photorealistic limewash-and-black-trim version of this house. Keep the shape, angles, and materials identical. Use white limewash that lets red brick show through, and convert all trim, gutters, fascia, and doors to satin black."
+        })
+      });
+
+      const data = await res.json();
+      status.innerHTML = data.success
+        ? `<a href="${data.imageUrl}" target="_blank">View generated image</a>`
+        : 'Failed to generate image.';
+    });
+  </script>
+</body>
+</html>
