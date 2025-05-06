@@ -8,29 +8,50 @@
     input[type="file"] { margin-top: 1rem; }
     img { margin-top: 1rem; max-width: 100%; border: 2px solid #555; }
     button { margin-top: 1rem; padding: 0.5rem 1rem; }
-    #status { margin-top: 1rem; color: #0f0; }
+    #status, #debug { margin-top: 1rem; }
+    #debug pre { background: #222; color: #0f0; padding: 1rem; overflow-x: auto; max-height: 300px; }
+    #output-image { max-width: 100%; border: 2px solid #0f0; margin-top: 1rem; }
   </style>
 </head>
 <body>
   <h1>Upload a House Image</h1>
-  <p>Select an image of your home below to generate a limewash + black trim rendering.</p>
+  <p>Select an image of your home to see a realistic rendering with white limewash and satin black trim.</p>
 
   <input type="file" accept="image/*" id="imageInput">
   <br>
   <img id="preview" style="display:none;" />
   <br>
-  <button id="sendButton" disabled>Send to GPT-4o</button>
+  <button id="sendButton" disabled>Generate with GPT-4o</button>
   <div id="status"></div>
 
+  <div id="debug" style="display: none;">
+    <h2>🧠 GPT-4o House Description</h2>
+    <pre id="houseDescription"></pre>
+
+    <h2>🎯 Final DALL·E Prompt</h2>
+    <pre id="dallePrompt"></pre>
+
+    <h2>🖼️ Output Image</h2>
+    <img id="output-image" />
+  </div>
+
   <script>
+    const API_BASE = window.location.protocol === 'file:' 
+      ? 'https://house-render-backend.onrender.com' 
+      : '';
+
     const input = document.getElementById('imageInput');
     const preview = document.getElementById('preview');
     const sendButton = document.getElementById('sendButton');
     const status = document.getElementById('status');
+    const debug = document.getElementById('debug');
+    const houseDescriptionEl = document.getElementById('houseDescription');
+    const dallePromptEl = document.getElementById('dallePrompt');
+    const outputImage = document.getElementById('output-image');
 
     let base64Image = '';
 
-    input.addEventListener('change', async (e) => {
+    input.addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (!file) return;
 
@@ -41,6 +62,7 @@
         preview.style.display = 'block';
         sendButton.disabled = false;
         status.textContent = '';
+        debug.style.display = 'none';
       };
       reader.readAsDataURL(file);
     });
@@ -49,21 +71,38 @@
       if (!base64Image) return;
 
       sendButton.disabled = true;
-      status.textContent = 'Sending image to GPT-4o...';
+      status.textContent = '🔄 Analyzing image with GPT-4o...';
+      debug.style.display = 'none';
+      houseDescriptionEl.textContent = '';
+      dallePromptEl.textContent = '';
+      outputImage.src = '';
 
-      const res = await fetch('/api/gpt4o-image-enhance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          image: base64Image,
-          userPrompt: "Please generate a photorealistic limewash-and-black-trim version of this house. Keep the shape, angles, and materials identical. Use white limewash that lets red brick show through, and convert all trim, gutters, fascia, and doors to satin black."
-        })
-      });
+      try {
+        const res = await fetch(`${API_BASE}/api/gpt4o-image-enhance`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            image: base64Image,
+            userPrompt: "Please create a photorealistic rendering of this house with a white limewash finish that allows red brick bleed-through. All trim, gutters, soffits, fascia, and doors should be converted to satin black. Preserve all structure, windows, roof pitch, and architectural layout. Do not add text, labels, or callouts."
+          })
+        });
 
-      const data = await res.json();
-      status.innerHTML = data.success
-        ? `<a href="${data.imageUrl}" target="_blank">View generated image</a>`
-        : 'Failed to generate image.';
+        const data = await res.json();
+        if (data.success && data.imageUrl) {
+          status.textContent = '✅ Image generated successfully.';
+          debug.style.display = 'block';
+          houseDescriptionEl.textContent = data.houseDescription || '(no description returned)';
+          dallePromptEl.textContent = data.dallePrompt || '(no prompt returned)';
+          outputImage.src = data.imageUrl;
+        } else {
+          status.textContent = '❌ Failed to generate image.';
+        }
+      } catch (err) {
+        console.error(err);
+        status.textContent = `❌ Error: ${err.message}`;
+      } finally {
+        sendButton.disabled = false;
+      }
     });
   </script>
 </body>
