@@ -80,7 +80,13 @@ ${houseDescription}`
     });
 
     const imageUrl = imageResp.data[0].url;
-    res.json({ success: true, imageUrl });
+    res.json({ 
+      success: true, 
+      imageUrl, 
+      houseDescription,
+      dallePrompt: improvedPrompt
+    });
+    
 
   } catch (err) {
     console.error(err);
