@@ -53,8 +53,8 @@ app.post('/api/gpt4o-image-enhance', async (req, res) => {
     const promptMessages = [
       {
         role: 'system',
-        content: `You are a prompt engineer for photorealistic architectural visualizations. Use the description of a house and generate a DALL·E 3 prompt that keeps all structure intact while applying specific enhancements. Do not add labels, annotations, or text. Do not change layout, window count, roof shape, or elevation.`
-      },
+        content: `You are a strict prompt engineer tasked with transforming house photos while preserving their architecture. Generate a DALL·E 3 prompt based on the provided home description. Absolutely DO NOT alter the layout, proportions, shape, window count, roof lines, or structure. DO NOT redesign the house or change materials. Only apply enhancements as instructed. Do NOT include text, annotations, callouts, diagram labels, or fantasy edits. Prioritize realism, fidelity to the original house, and accurate transformations only.`
+    },
       {
         role: 'user',
         content: `Based on the following house description, write a DALL·E 3 prompt that transforms the house by applying a white limewash (with red bleed-through) and converting all trim, gutters, fascia, soffits, and doors to satin black. Here is the house description:
