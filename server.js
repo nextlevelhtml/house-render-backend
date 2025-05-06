@@ -25,13 +25,13 @@ app.use(cors({
   credentials: false
 }));
 
-app.use(bodyParser.json({ limit: '25mb' }));
+app.use(bodyParser.json({ limit: '100mb' }));
 app.use(express.static('public'));
 
 app.post('/api/gpt4o-image-enhance', async (req, res) => {
   try {
     const { image, userPrompt } = req.body;
-    const base64Data = image.replace(/^data:image\\/\\w+;base64,/, '');
+    const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
 
     const messages = [
       {
