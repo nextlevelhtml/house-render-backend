@@ -9,7 +9,20 @@ dotenv.config();
 const app = express();
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-app.use(cors());
+// CORS configuration to support local file:// testing and frontend deployments
+app.use(cors({
+  origin: [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost',
+    'null',
+    '*'
+  ],
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type'],
+  credentials: true
+}));
+
 app.use(bodyParser.json({ limit: '100mb' }));
 app.use(express.static('public'));
 
@@ -18,11 +31,11 @@ app.post('/api/gpt4o-image-enhance', async (req, res) => {
     const { image, userPrompt } = req.body;
     const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
 
-    // Step 1: Analyze the image using GPT-4o
+    // Step 1: Use GPT-4o to analyze the image and produce an architectural description
     const analysisMessages = [
       {
         role: 'system',
-        content: `You are a professional architectural visual analyst. Describe the visible features of the house image, including roof style, garage layout, window count, trim color, brick pattern, entry style, and landscaping. Do NOT speculate or hallucinate. Only describe what you can clearly see.`
+        content: `You are a professional architectural visual analyst. Analyze the uploaded photo of a house and describe its features in detail, including shape, roof style, garage count and layout, brick type, trim color, window layout, and landscaping. Do not speculate or hallucinate. Focus only on what is clearly visible in the image.`
       },
       {
         role: 'user',
@@ -49,28 +62,17 @@ app.post('/api/gpt4o-image-enhance', async (req, res) => {
     const houseDescription = analysisResponse.choices[0]?.message?.content?.trim();
     if (!houseDescription) throw new Error('Failed to generate house description');
 
-    // 🔒 Step 2: Build a stricter DALL·E prompt
-    const visualConstraints = `
-Do NOT alter or redesign the house.
-Do NOT change the shape, elevation, layout, structure, window count, roof pitch, dormers, or trim layout.
-Do NOT add decorative features, shutters, chimneys, dormers, or architectural enhancements.
-This is NOT a fantasy edit or style render.
-Only apply color and material changes as instructed.`;
-
+    // Step 2: Ask GPT-4o to rewrite the transformation prompt for DALL·E
     const promptMessages = [
       {
         role: 'system',
-        content: `You are a prompt engineer for photorealistic architectural visualizations. You will create an extremely strict DALL·E 3 prompt based on a description of a real house, applying specific visual edits without changing structure or design.`
+        content: `You are a strict prompt engineer tasked with transforming house photos while preserving their architecture. Generate a DALL·E 3 prompt based on the provided home description. Absolutely DO NOT alter the layout, proportions, shape, window count, roof lines, or structure. DO NOT redesign the house or change materials. Only apply enhancements as instructed. Do NOT include text, annotations, callouts, diagram labels, or fantasy edits. Prioritize realism, fidelity to the original house, and accurate transformations only.`
       },
       {
         role: 'user',
-        content: `${visualConstraints}
+        content: `Based on the following house description, write a DALL·E 3 prompt that transforms the house by applying a white limewash (with red bleed-through) and converting all trim, gutters, fascia, soffits, and doors to satin black. Here is the house description:
 
-Here is the architectural description of the house:
-${houseDescription}
-
-Now, generate a DALL·E 3 prompt that applies the following transformation:
-${userPrompt}`
+${houseDescription}`
       }
     ];
 
@@ -82,7 +84,7 @@ ${userPrompt}`
     const improvedPrompt = promptResponse.choices[0]?.message?.content?.trim();
     if (!improvedPrompt) throw new Error('Failed to generate DALL·E prompt');
 
-    // Step 3: Generate the image using DALL·E
+    // Step 3: Generate image from DALL·E
     const imageResp = await openai.images.generate({
       model: 'dall-e-3',
       prompt: improvedPrompt,
@@ -91,11 +93,9 @@ ${userPrompt}`
     });
 
     const imageUrl = imageResp.data[0].url;
-
-    // ✅ Send response with debug info
-    res.json({
-      success: true,
-      imageUrl,
+    res.json({ 
+      success: true, 
+      imageUrl, 
       houseDescription,
       dallePrompt: improvedPrompt
     });
