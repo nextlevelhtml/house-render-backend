@@ -1,0 +1,122 @@
+name: Temporary Vimeo reel spotting
+
+on:
+  push:
+    branches:
+      - tmp-vimeo-spotting-20260726
+
+permissions:
+  contents: read
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Check out temporary branch
+        uses: actions/checkout@v4
+
+      - name: Install capture tools
+        run: |
+          python -m pip install --upgrade pip yt-dlp
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg tesseract-ocr
+
+      - name: Download reels and extract review frames
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p capture/videos capture/info capture/frames capture/scenes capture/ocr capture/logs
+
+          declare -A REELS=(
+            [unreal]=1158277935
+            [film]=835320101
+            [games]=599393609
+          )
+
+          for name in unreal film games; do
+            id="${REELS[$name]}"
+            url="https://vimeo.com/${id}"
+            echo "Downloading ${name}: ${url}"
+
+            yt-dlp \
+              --no-playlist \
+              --write-info-json \
+              --write-description \
+              --write-thumbnail \
+              --convert-thumbnails jpg \
+              --output "capture/videos/${name}.%(ext)s" \
+              --format "bv*[height<=720]+ba/b[height<=720]/best[height<=720]/best" \
+              --merge-output-format mp4 \
+              "$url" 2>&1 | tee "capture/logs/${name}-download.log"
+
+            video="$(find capture/videos -maxdepth 1 -type f -name "${name}.*" ! -name '*.info.json' ! -name '*.description' ! -name '*.jpg' | head -n 1)"
+            test -n "$video"
+
+            cp "${video%.*}.info.json" "capture/info/${name}.info.json"
+            cp "${video%.*}.description" "capture/info/${name}.description" || true
+            cp "${video%.*}.jpg" "capture/info/${name}-thumbnail.jpg" || true
+
+            ffprobe -v error -show_format -show_streams -of json "$video" > "capture/info/${name}.ffprobe.json"
+
+            mkdir -p "capture/frames/${name}" "capture/scenes/${name}"
+
+            # Two review frames per second. The frame number and a machine-readable
+            # timestamp map are both retained so exact title-card boundaries can be spotted.
+            ffmpeg -hide_banner -loglevel warning -i "$video" \
+              -vf "fps=2,scale='min(1280,iw)':-2:flags=lanczos" \
+              -q:v 3 "capture/frames/${name}/${name}-%06d.jpg"
+
+            # Independent scene-change pass catches hard cuts and short title cards.
+            ffmpeg -hide_banner -loglevel info -i "$video" \
+              -vf "select='gt(scene,0.08)',showinfo,scale='min(1280,iw)':-2:flags=lanczos" \
+              -vsync vfr -q:v 2 "capture/scenes/${name}/${name}-scene-%06d.jpg" \
+              2> "capture/logs/${name}-scene-showinfo.log"
+
+            python - "$name" "$video" <<'PY'
+import json, subprocess, sys
+from pathlib import Path
+name, video = sys.argv[1], sys.argv[2]
+probe = json.loads(subprocess.check_output([
+    'ffprobe','-v','error','-show_entries','format=duration','-of','json',video
+]))
+duration = float(probe['format']['duration'])
+frames = []
+i = 1
+while (i - 1) / 2.0 < duration:
+    frames.append({'file': f'{name}-{i:06d}.jpg', 'seconds': round((i - 1) / 2.0, 3)})
+    i += 1
+Path(f'capture/info/{name}-frame-map.json').write_text(json.dumps({
+    'video': name,
+    'duration': duration,
+    'sample_rate_fps': 2,
+    'frames': frames
+}, indent=2), encoding='utf-8')
+PY
+
+            # OCR is only a supporting signal. The extracted images remain the source for visual verification.
+            : > "capture/ocr/${name}.tsv"
+            printf 'frame\tseconds\ttext\n' >> "capture/ocr/${name}.tsv"
+            for image in capture/frames/${name}/*.jpg; do
+              stem="$(basename "$image" .jpg)"
+              number="${stem##*-}"
+              seconds="$(python - "$number" <<'PY'
+import sys
+print(f'{(int(sys.argv[1]) - 1) / 2.0:.3f}')
+PY
+)"
+              text="$(tesseract "$image" stdout --psm 11 2>/dev/null | tr '\n' ' ' | tr '\t' ' ' | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//')"
+              printf '%s\t%s\t%s\n' "$(basename "$image")" "$seconds" "$text" >> "capture/ocr/${name}.tsv"
+            done
+          done
+
+          find capture -type f -printf '%P\t%s bytes\n' | sort > capture/MANIFEST.txt
+
+      - name: Upload reel-spotting evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: vimeo-reel-spotting-evidence
+          path: capture/
+          compression-level: 3
+          retention-days: 1
+          if-no-files-found: error
